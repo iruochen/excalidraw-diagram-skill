@@ -1,0 +1,27 @@
+name: Bug report
+description: Report incorrect scene generation or SVG rendering.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the actual and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Scene spec
+      description: Paste a minimal scene spec that reproduces the problem.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "macOS 15, Python 3.12, Node.js 20"
+    validations:
+      required: true

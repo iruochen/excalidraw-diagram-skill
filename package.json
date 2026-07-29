@@ -1,0 +1,40 @@
+{
+  "name": "excalidraw-diagram-skill",
+  "version": "1.0.0",
+  "description": "Generate editable Excalidraw diagrams and official SVG previews from compact JSON scene specs.",
+  "private": true,
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests -v",
+    "example": "python3 scripts/build_excalidraw.py examples/login-flow.scene.json examples/login-flow.excalidraw --svg examples/login-flow.svg --pretty"
+  },
+  "keywords": [
+    "codex",
+    "excalidraw",
+    "diagram",
+    "skill",
+    "svg"
+  ],
+  "author": "ruochen",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iruochen/excalidraw-diagram-skill.git"
+  },
+  "bugs": {
+    "url": "https://github.com/iruochen/excalidraw-diagram-skill/issues"
+  },
+  "homepage": "https://github.com/iruochen/excalidraw-diagram-skill#readme",
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "jsdom": "^26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}

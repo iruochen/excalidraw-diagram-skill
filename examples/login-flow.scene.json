@@ -1,0 +1,59 @@
+{
+  "title": "Login flow",
+  "defaults": {
+    "roughness": 1.4,
+    "fontFamily": 5
+  },
+  "elements": [
+    {
+      "kind": "text",
+      "x": 80,
+      "y": 30,
+      "text": "Login flow",
+      "fontSize": 30,
+      "fontWeight": "bold"
+    },
+    {
+      "id": "user",
+      "kind": "rectangle",
+      "x": 80,
+      "y": 120,
+      "width": 170,
+      "height": 80,
+      "text": "User",
+      "backgroundColor": "#e8f3ff"
+    },
+    {
+      "id": "api",
+      "kind": "rectangle",
+      "x": 350,
+      "y": 120,
+      "width": 190,
+      "height": 80,
+      "text": "Auth API",
+      "backgroundColor": "#f3e8ff"
+    },
+    {
+      "id": "session",
+      "kind": "ellipse",
+      "x": 640,
+      "y": 115,
+      "width": 190,
+      "height": 90,
+      "text": "Session store",
+      "backgroundColor": "#e8ffe8"
+    },
+    {
+      "kind": "arrow",
+      "from": "user",
+      "to": "api",
+      "text": "POST /login"
+    },
+    {
+      "kind": "arrow",
+      "from": "api",
+      "to": "session",
+      "text": "create session"
+    }
+  ]
+}

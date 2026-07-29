@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Excalidraw"
+  short_description: "Create Excalidraw images and files"
+  default_prompt: "Use $generate-excalidraw to create an Excalidraw-style diagram image from my description."
