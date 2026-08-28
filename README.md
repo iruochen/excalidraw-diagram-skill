@@ -18,7 +18,7 @@ This repository is both:
 - Official SVG rendering through Excalidraw's `exportToSvg`
 - Excalifont by default, with sensible hand-drawn styling
 - Stable element IDs and deterministic seeds
-- Automatic shape-label fitting and arrow-to-shape connections
+- Automatic shape-label fitting and deterministic obstacle-avoiding arrow-to-shape connections
 - Lightweight fallback SVG renderer for constrained environments
 - No Python packages required
 

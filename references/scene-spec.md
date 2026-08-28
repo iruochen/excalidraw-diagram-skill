@@ -68,13 +68,18 @@ Or connected between ids:
 { "kind": "arrow", "from": "web", "to": "api", "text": "HTTPS" }
 ```
 
-When using `from` and `to`, the script connects element centers and places the arrow label near the midpoint.
+When using `from` and `to`, the script connects the source and destination edges. It keeps the original simple straight connector when the route is unobstructed. If that connector would cross another visible rectangle, ellipse, or diamond, the script deterministically creates an orthogonal route around all intervening shapes with a 20px default clearance. Obstacle routes jointly select the midpoint of the source and destination's top, right, bottom, or left edge, so their first and last segments meet the selected edge perpendicularly without touching a corner or running along the node border. Frames are not routing obstacles. Set `routingMargin` on the arrow or line to change the clearance.
+
+Explicit `points` are never rewritten by automatic routing.
+
+Automatic labels follow the final routed path and try alternate sides and path positions rather than overlap a shape, standalone text, or frame title. Shape-bound labels are already covered by their container and are not counted twice. Explicit `labelX`/`labelY` or `labelOffsetX`/`labelOffsetY` remain authoritative manual overrides.
 
 Arrow and line labels can be controlled explicitly:
 
 - `labelX`, `labelY`: absolute scene coordinates for the label. Use these for crowded diagrams.
 - `labelPosition`: where to anchor the label along the full path. Accepts `start`, `middle`, `center`, `end`, or a number from `0` to `1`.
 - `labelOffsetX`, `labelOffsetY`: offset from the computed path anchor. Defaults to `0` and `-28`.
+- `routingMargin`: obstacle clearance for `from`/`to` connectors. Defaults to `20`; ignored when `points` are explicit.
 
 Examples:
 
