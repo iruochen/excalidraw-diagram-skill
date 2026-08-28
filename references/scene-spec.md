@@ -103,6 +103,8 @@ Examples:
 
 Frames create an Excalidraw frame plus a small title text near the top-left.
 
+Use `text` for the normal scene-spec frame title. It is emitted as one standalone text element so automatic connector labels can avoid it. Use `name` only when the title should be handled by Excalidraw's native frame-name rendering; do not set both unless two distinct labels are intended.
+
 ## Example
 
 ```json

@@ -2,18 +2,25 @@
 
 ## Validation
 
-Run the full project test suite before committing changes:
+After every code or scene-generation change, run the complete validation command before committing:
 
 ```bash
-npm test
+npm run validate
 ```
 
-For Python changes, also run:
+This command includes Python compilation, the unit regression suite, the complex routing fixture, an official Excalidraw SVG export, and `git diff --check`.
+
+When routing, text measurement, or rendering behavior changes, also generate the complex fixture manually and visually inspect the official SVG before delivery:
 
 ```bash
-python3 -m py_compile scripts/build_excalidraw.py tests/test_build_excalidraw.py
-git diff --check
+python3 scripts/build_excalidraw.py \
+  tests/fixtures/complex-routing.scene.json \
+  /tmp/complex-routing.excalidraw \
+  --svg /tmp/complex-routing.svg \
+  --pretty
 ```
+
+Check shape and title overlap, connector clearance, perpendicular endpoint ports, arrow labels, frame boundaries, and clipping. If any visual defect appears, add a regression assertion or fixture case before changing the implementation.
 
 ## Connector Routing Invariants
 

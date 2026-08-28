@@ -624,7 +624,10 @@ def build_scene(spec: dict[str, Any]) -> dict[str, Any]:
             continue
         if kind == "frame":
             elem = element_base("frame", item, defaults)
-            elem["name"] = item.get("name") or item.get("text") or ""
+            # Excalidraw renders frame names itself. A spec `text` is emitted as
+            # a separate title element so it can participate in label collision
+            # detection without being rendered twice by the official exporter.
+            elem["name"] = item.get("name") or ""
             elements.append(elem)
             by_id[elem["id"]] = elem
             if item.get("text"):

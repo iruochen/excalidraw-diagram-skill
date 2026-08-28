@@ -1,0 +1,175 @@
+{
+  "title": "Complex routing validation",
+  "defaults": {
+    "roughness": 1.4,
+    "fontSize": 19,
+    "fontFamily": 5
+  },
+  "elements": [
+    {
+      "id": "system-frame",
+      "kind": "frame",
+      "x": 20,
+      "y": 70,
+      "width": 1180,
+      "height": 660,
+      "text": "端到端服务链路"
+    },
+    {
+      "id": "lane-title",
+      "kind": "text",
+      "x": 470,
+      "y": 92,
+      "text": "① 核心业务服务",
+      "fontSize": 25,
+      "fontWeight": "bold"
+    },
+    {
+      "id": "ingress",
+      "kind": "rectangle",
+      "x": 70,
+      "y": 180,
+      "width": 150,
+      "height": 72,
+      "text": "客户端入口",
+      "backgroundColor": "#e8f3ff"
+    },
+    {
+      "id": "auth",
+      "kind": "rectangle",
+      "x": 310,
+      "y": 180,
+      "width": 150,
+      "height": 72,
+      "text": "认证服务",
+      "backgroundColor": "#fff4cc"
+    },
+    {
+      "id": "catalog",
+      "kind": "diamond",
+      "x": 550,
+      "y": 166,
+      "width": 160,
+      "height": 100,
+      "text": "业务判断",
+      "backgroundColor": "#f3e8ff"
+    },
+    {
+      "id": "storage",
+      "kind": "ellipse",
+      "x": 800,
+      "y": 176,
+      "width": 160,
+      "height": 80,
+      "text": "媒体存储",
+      "backgroundColor": "#e8ffe8"
+    },
+    {
+      "id": "response",
+      "kind": "rectangle",
+      "x": 1040,
+      "y": 180,
+      "width": 130,
+      "height": 72,
+      "text": "响应",
+      "backgroundColor": "#ffe8ef"
+    },
+    {
+      "id": "audit-title",
+      "kind": "text",
+      "x": 720,
+      "y": 332,
+      "text": "② 审计处理服务",
+      "fontSize": 23,
+      "fontWeight": "bold"
+    },
+    {
+      "id": "audit-switch",
+      "kind": "rectangle",
+      "x": 550,
+      "y": 480,
+      "width": 150,
+      "height": 72,
+      "text": "审计开关",
+      "backgroundColor": "#fff4cc"
+    },
+    {
+      "id": "audit-blocker",
+      "kind": "rectangle",
+      "x": 720,
+      "y": 490,
+      "width": 280,
+      "height": 150,
+      "text": "异步审计任务",
+      "backgroundColor": "#f3e8ff"
+    },
+    {
+      "id": "audit-review",
+      "kind": "rectangle",
+      "x": 1020,
+      "y": 480,
+      "width": 150,
+      "height": 72,
+      "text": "审计复核",
+      "backgroundColor": "#e8ffe8"
+    },
+    {
+      "id": "direct-edge",
+      "kind": "arrow",
+      "from": "ingress",
+      "to": "auth",
+      "text": "登录"
+    },
+    {
+      "id": "reverse-edge",
+      "kind": "arrow",
+      "from": "response",
+      "to": "ingress",
+      "text": "列表结果"
+    },
+    {
+      "id": "decision-edge",
+      "kind": "arrow",
+      "from": "auth",
+      "to": "catalog",
+      "text": "校验通过"
+    },
+    {
+      "id": "storage-edge",
+      "kind": "arrow",
+      "from": "catalog",
+      "to": "storage",
+      "text": "上传"
+    },
+    {
+      "id": "response-edge",
+      "kind": "arrow",
+      "from": "storage",
+      "to": "response",
+      "text": "文件信息"
+    },
+    {
+      "id": "audit-entry",
+      "kind": "arrow",
+      "from": "catalog",
+      "to": "audit-switch",
+      "text": "记录审计"
+    },
+    {
+      "id": "audit-path",
+      "kind": "arrow",
+      "from": "audit-switch",
+      "to": "audit-review",
+      "text": "审计结果"
+    },
+    {
+      "id": "explicit-edge",
+      "kind": "arrow",
+      "x": 180,
+      "y": 650,
+      "points": [[0, 0], [120, -35], [260, -35], [340, 0]],
+      "text": "人工指定路径",
+      "labelOffsetY": 34
+    }
+  ]
+}
