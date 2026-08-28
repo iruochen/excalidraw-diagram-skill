@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import heapq
 import hashlib
 import json
 import math
@@ -30,6 +31,13 @@ DEFAULTS = {
     "textAlign": "center",
     "verticalAlign": "middle",
 }
+
+ROUTING_MARGIN = 20.0
+LABEL_CLEARANCE = 6.0
+PORT_LEAD_DISTANCE = 12.0
+PORT_BORDER_CLEARANCE = 1.0
+ROUTE_BEND_PENALTY = 24.0
+SHAPE_TYPES = {"rectangle", "ellipse", "diamond"}
 
 
 def stable_id(prefix: str, payload: Any) -> str:
@@ -138,6 +146,262 @@ def edge_point(source: dict[str, Any], target: dict[str, Any]) -> tuple[float, f
     return sx + dx * scale, sy + dy * scale
 
 
+def shape_bounds(element: dict[str, Any], margin: float = 0) -> tuple[float, float, float, float]:
+    return (
+        float(element["x"]) - margin,
+        float(element["y"]) - margin,
+        float(element["x"] + element["width"]) + margin,
+        float(element["y"] + element["height"]) + margin,
+    )
+
+
+def visible_shapes(by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        (
+            element
+            for element in by_id.values()
+            if element.get("type") in SHAPE_TYPES
+            and not element.get("isDeleted", False)
+            and float(element.get("opacity", 100)) > 0
+        ),
+        key=lambda element: element["id"],
+    )
+
+
+def visible_label_obstacles(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return shapes and unbound text that automatic connector labels must avoid."""
+    return [
+        element
+        for element in elements
+        if not element.get("isDeleted", False)
+        and float(element.get("opacity", 100)) > 0
+        and (
+            element.get("type") in SHAPE_TYPES
+            or (element.get("type") == "text" and element.get("containerId") is None)
+        )
+    ]
+
+
+def point_inside_rect(point: tuple[float, float], rect: tuple[float, float, float, float]) -> bool:
+    x, y = point
+    left, top, right, bottom = rect
+    return left < x < right and top < y < bottom
+
+
+def segment_crosses_rect(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    rect: tuple[float, float, float, float],
+) -> bool:
+    """Return whether a segment crosses the open interior of an axis-aligned rect."""
+    left, top, right, bottom = rect
+    epsilon = 1e-7
+    left += epsilon
+    top += epsilon
+    right -= epsilon
+    bottom -= epsilon
+    if left >= right or top >= bottom:
+        return False
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    lower, upper = 0.0, 1.0
+    for origin, delta, minimum, maximum in (
+        (start[0], dx, left, right),
+        (start[1], dy, top, bottom),
+    ):
+        if abs(delta) < epsilon:
+            if origin < minimum or origin > maximum:
+                return False
+            continue
+        near = (minimum - origin) / delta
+        far = (maximum - origin) / delta
+        if near > far:
+            near, far = far, near
+        lower = max(lower, near)
+        upper = min(upper, far)
+        if lower > upper:
+            return False
+    return lower <= upper
+
+
+def path_is_clear(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    obstacles: list[tuple[float, float, float, float]],
+) -> bool:
+    return not any(segment_crosses_rect(start, end, obstacle) for obstacle in obstacles)
+
+
+def simplify_path(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    simplified: list[tuple[float, float]] = []
+    for point in points:
+        if simplified and point == simplified[-1]:
+            continue
+        if len(simplified) >= 2:
+            previous, current = simplified[-2], simplified[-1]
+            if (previous[0] == current[0] == point[0]) or (previous[1] == current[1] == point[1]):
+                simplified[-1] = point
+                continue
+        simplified.append(point)
+    return simplified
+
+
+def path_metrics(points: list[tuple[float, float]]) -> tuple[float, int, int]:
+    distance = 0.0
+    bends = 0
+    previous_direction: str | None = None
+    segments = 0
+    for start, end in zip(points, points[1:]):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        length = abs(dx) + abs(dy)
+        if length == 0:
+            continue
+        direction = "h" if abs(dx) >= abs(dy) else "v"
+        bends += int(previous_direction is not None and previous_direction != direction)
+        previous_direction = direction
+        distance += length
+        segments += 1
+    return distance, bends, segments
+
+
+def port_candidates(
+    element: dict[str, Any], lead_distance: float
+) -> list[tuple[str, tuple[float, float], tuple[float, float]]]:
+    left, top, right, bottom = shape_bounds(element)
+    center_x = (left + right) / 2
+    center_y = (top + bottom) / 2
+    return [
+        ("top", (center_x, top), (center_x, top - lead_distance)),
+        ("right", (right, center_y), (right + lead_distance, center_y)),
+        ("bottom", (center_x, bottom), (center_x, bottom + lead_distance)),
+        ("left", (left, center_y), (left - lead_distance, center_y)),
+    ]
+
+
+def orthogonal_route(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    obstacles: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float]]:
+    """Find a deterministic shortest rectilinear path through obstacle boundary coordinates."""
+    xs = sorted({start[0], end[0], *(value for rect in obstacles for value in (rect[0], rect[2]))})
+    ys = sorted({start[1], end[1], *(value for rect in obstacles for value in (rect[1], rect[3]))})
+    nodes = {
+        (x, y)
+        for x in xs
+        for y in ys
+        if (x, y) in {start, end} or not any(point_inside_rect((x, y), rect) for rect in obstacles)
+    }
+    neighbors: dict[tuple[float, float], list[tuple[tuple[float, float], str, float]]] = {
+        node: [] for node in nodes
+    }
+    for y in ys:
+        row = sorted((node for node in nodes if node[1] == y), key=lambda node: node[0])
+        for first, second in zip(row, row[1:]):
+            if path_is_clear(first, second, obstacles):
+                distance = second[0] - first[0]
+                neighbors[first].append((second, "h", distance))
+                neighbors[second].append((first, "h", distance))
+    for x in xs:
+        column = sorted((node for node in nodes if node[0] == x), key=lambda node: node[1])
+        for first, second in zip(column, column[1:]):
+            if path_is_clear(first, second, obstacles):
+                distance = second[1] - first[1]
+                neighbors[first].append((second, "v", distance))
+                neighbors[second].append((first, "v", distance))
+    for entries in neighbors.values():
+        entries.sort(key=lambda entry: (entry[0][0], entry[0][1], entry[1]))
+
+    # The tuple cost prefers shortest distance, then fewer bends and segments.
+    queue: list[tuple[float, int, int, float, float, str, tuple[float, float], list[tuple[float, float]]]] = []
+    heapq.heappush(queue, (0.0, 0, 0, start[0], start[1], "", start, [start]))
+    best: dict[tuple[tuple[float, float], str], tuple[float, int, int]] = {(start, ""): (0.0, 0, 0)}
+    while queue:
+        distance, bends, segments, _, _, direction, node, path = heapq.heappop(queue)
+        if best.get((node, direction)) != (distance, bends, segments):
+            continue
+        if node == end:
+            return simplify_path(path)
+        for next_node, next_direction, length in neighbors[node]:
+            next_cost = (
+                distance + length,
+                bends + int(bool(direction) and direction != next_direction),
+                segments + 1,
+            )
+            state = (next_node, next_direction)
+            if state in best and best[state] <= next_cost:
+                continue
+            best[state] = next_cost
+            heapq.heappush(
+                queue,
+                (*next_cost, next_node[0], next_node[1], next_direction, next_node, path + [next_node]),
+            )
+    raise RuntimeError("No orthogonal route found")
+
+
+def routed_connector_points(
+    start_ref: dict[str, Any],
+    end_ref: dict[str, Any],
+    shapes: list[dict[str, Any]],
+    margin: float,
+) -> tuple[float, float, list[list[float]]]:
+    direct_start = edge_point(start_ref, end_ref)
+    direct_end = edge_point(end_ref, start_ref)
+    intervening = [shape for shape in shapes if shape["id"] not in {start_ref["id"], end_ref["id"]}]
+    margin = max(float(margin), 0.0)
+    padded_obstacles = [shape_bounds(shape, margin) for shape in intervening]
+    if path_is_clear(direct_start, direct_end, padded_obstacles):
+        return (
+            direct_start[0],
+            direct_start[1],
+            [[0, 0], [direct_end[0] - direct_start[0], direct_end[1] - direct_start[1]]],
+        )
+
+    # Mid-edge ports plus outward lead points force perpendicular departure and arrival.
+    endpoint_obstacles = padded_obstacles + [shape_bounds(start_ref), shape_bounds(end_ref)]
+    middle_obstacles = padded_obstacles + [
+        shape_bounds(start_ref, PORT_BORDER_CLEARANCE),
+        shape_bounds(end_ref, PORT_BORDER_CLEARANCE),
+    ]
+    lead_distance = max(margin, PORT_LEAD_DISTANCE)
+    candidates: list[
+        tuple[
+            tuple[float, int, float, int, int, int, tuple[tuple[float, float], ...]],
+            list[tuple[float, float]],
+        ]
+    ] = []
+    for start_rank, (_, start_port, start_lead) in enumerate(port_candidates(start_ref, lead_distance)):
+        if not path_is_clear(start_port, start_lead, endpoint_obstacles):
+            continue
+        for end_rank, (_, end_port, end_lead) in enumerate(port_candidates(end_ref, lead_distance)):
+            if not path_is_clear(end_lead, end_port, endpoint_obstacles):
+                continue
+            try:
+                middle = orthogonal_route(start_lead, end_lead, middle_obstacles)
+            except RuntimeError:
+                continue
+            absolute_points = simplify_path([start_port, *middle, end_port])
+            distance, bends, segments = path_metrics(absolute_points)
+            score = (
+                distance + bends * ROUTE_BEND_PENALTY,
+                bends,
+                distance,
+                segments,
+                start_rank,
+                end_rank,
+                tuple(absolute_points),
+            )
+            candidates.append((score, absolute_points))
+    if not candidates:
+        raise SystemExit("Unable to route connector around overlapping shapes")
+    _, absolute_points = min(candidates, key=lambda candidate: candidate[0])
+    start = absolute_points[0]
+    return (
+        start[0],
+        start[1],
+        [[point[0] - start[0], point[1] - start[1]] for point in absolute_points],
+    )
+
+
 def point_at_path_position(points: list[list[float]], position: Any) -> tuple[float, float]:
     if not points:
         return 0, 0
@@ -173,29 +437,134 @@ def point_at_path_position(points: list[list[float]], position: Any) -> tuple[fl
     return float(points[-1][0]), float(points[-1][1])
 
 
-def label_position(item: dict[str, Any], x: float, y: float, points: list[list[float]], defaults: dict[str, Any]) -> tuple[float, float]:
+def path_anchor_and_direction(
+    points: list[list[float]], position: Any
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    anchor = point_at_path_position(points, position)
+    if len(points) < 2:
+        return anchor, (1, 0)
+    if isinstance(position, str):
+        position = {"start": 0.18, "middle": 0.5, "center": 0.5, "end": 0.82}.get(position, 0.5)
+    try:
+        ratio = min(max(float(position), 0), 1)
+    except (TypeError, ValueError):
+        ratio = 0.5
+    lengths = [
+        math.hypot(float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
+        for start, end in zip(points, points[1:])
+    ]
+    target = sum(lengths) * ratio
+    walked = 0.0
+    for index, length in enumerate(lengths):
+        if walked + length >= target and length > 0:
+            start, end = points[index], points[index + 1]
+            return anchor, (float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
+        walked += length
+    start, end = points[-2], points[-1]
+    return anchor, (float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
+
+
+def label_box_is_clear(
+    center: tuple[float, float],
+    width: float,
+    height: float,
+    obstacles: list[dict[str, Any]],
+) -> bool:
+    label_rect = (
+        center[0] - width / 2 - LABEL_CLEARANCE,
+        center[1] - height / 2 - LABEL_CLEARANCE,
+        center[0] + width / 2 + LABEL_CLEARANCE,
+        center[1] + height / 2 + LABEL_CLEARANCE,
+    )
+    for obstacle in obstacles:
+        left, top, right, bottom = shape_bounds(obstacle)
+        if not (
+            label_rect[2] <= left
+            or label_rect[0] >= right
+            or label_rect[3] <= top
+            or label_rect[1] >= bottom
+        ):
+            return False
+    return True
+
+
+def label_position(
+    item: dict[str, Any],
+    x: float,
+    y: float,
+    points: list[list[float]],
+    width: float,
+    height: float,
+    obstacles: list[dict[str, Any]],
+) -> tuple[float, float]:
     if "labelX" in item or "labelY" in item:
         fallback_x, fallback_y = point_at_path_position(points, item.get("labelPosition", 0.5))
         return (
             float(item.get("labelX", x + fallback_x)),
             float(item.get("labelY", y + fallback_y)),
         )
-    px, py = point_at_path_position(points, item.get("labelPosition", 0.5))
-    return (
+    position = item.get("labelPosition", 0.5)
+    explicit_offset = "labelOffsetX" in item or "labelOffsetY" in item
+    px, py = point_at_path_position(points, position)
+    requested = (
         x + px + float(item.get("labelOffsetX", 0)),
         y + py + float(item.get("labelOffsetY", -28)),
     )
+    if explicit_offset or label_box_is_clear(requested, width, height, obstacles):
+        return requested
+
+    ratios = [position, 0.35, 0.65, 0.2, 0.8, 0.5, 0.1, 0.9]
+    seen: set[float] = set()
+    for candidate_ratio in ratios:
+        try:
+            numeric_ratio = min(max(float(candidate_ratio), 0), 1)
+        except (TypeError, ValueError):
+            numeric_ratio = 0.5
+        if numeric_ratio in seen:
+            continue
+        seen.add(numeric_ratio)
+        (anchor_x, anchor_y), (dx, dy) = path_anchor_and_direction(points, numeric_ratio)
+        horizontal = abs(dx) >= abs(dy)
+        for clearance in (28.0, 40.0, 56.0, 76.0, 100.0):
+            offsets = [(0, -clearance), (0, clearance)] if horizontal else [(-clearance, 0), (clearance, 0)]
+            for offset_x, offset_y in offsets:
+                candidate = (x + anchor_x + offset_x, y + anchor_y + offset_y)
+                if label_box_is_clear(candidate, width, height, obstacles):
+                    return candidate
+    # A finite set of obstacles always has a clear position outside its total bounds.
+    (anchor_x, anchor_y), _ = path_anchor_and_direction(points, position)
+    absolute_anchor = (x + anchor_x, y + anchor_y)
+    bounds = [shape_bounds(obstacle) for obstacle in obstacles]
+    outer_candidates = (
+        (absolute_anchor[0], min(rect[1] for rect in bounds) - height / 2 - LABEL_CLEARANCE),
+        (min(rect[0] for rect in bounds) - width / 2 - LABEL_CLEARANCE, absolute_anchor[1]),
+        (max(rect[2] for rect in bounds) + width / 2 + LABEL_CLEARANCE, absolute_anchor[1]),
+        (absolute_anchor[0], max(rect[3] for rect in bounds) + height / 2 + LABEL_CLEARANCE),
+    ) if bounds else (requested,)
+    for candidate in outer_candidates:
+        if label_box_is_clear(candidate, width, height, obstacles):
+            return candidate
+    return requested
 
 
-def arrow_or_line(item: dict[str, Any], defaults: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def arrow_or_line(
+    item: dict[str, Any],
+    defaults: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    existing_elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     kind = "line" if item.get("kind") == "line" else "arrow"
+    shapes = visible_shapes(by_id)
+    label_obstacles = visible_label_obstacles(existing_elements)
     if "from" in item and "to" in item:
         start_ref = by_id[item["from"]]
         end_ref = by_id[item["to"]]
-        sx, sy = edge_point(start_ref, end_ref)
-        ex, ey = edge_point(end_ref, start_ref)
-        points = [[0, 0], [ex - sx, ey - sy]]
-        x, y = sx, sy
+        x, y, points = routed_connector_points(
+            start_ref,
+            end_ref,
+            shapes,
+            float(item.get("routingMargin", ROUTING_MARGIN)),
+        )
     else:
         points = item.get("points", [[0, 0], [float(item.get("width", 160)), float(item.get("height", 0))]])
         x = float(item.get("x", 0))
@@ -216,9 +585,9 @@ def arrow_or_line(item: dict[str, Any], defaults: dict[str, Any], by_id: dict[st
     )
     out = [base]
     if item.get("text"):
-        tx, ty = label_position(item, x, y, points, defaults)
         label_font_size = int(item.get("fontSize", max(14, defaults["fontSize"] - 4)))
         label_width, label_height = estimate_text_size(str(item["text"]), label_font_size)
+        tx, ty = label_position(item, x, y, points, label_width, label_height, label_obstacles)
         out.append(
             text_element(
                 {
@@ -304,7 +673,7 @@ def build_scene(spec: dict[str, Any]) -> dict[str, Any]:
         missing = [ref for ref in (item.get("from"), item.get("to")) if ref and ref not in by_id]
         if missing:
             raise SystemExit(f"Arrow references unknown element id(s): {', '.join(missing)}")
-        elements.extend(arrow_or_line(item, defaults, by_id))
+        elements.extend(arrow_or_line(item, defaults, by_id, elements))
 
     app_state = {
         "theme": "light",

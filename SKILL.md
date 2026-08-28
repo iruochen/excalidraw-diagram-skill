@@ -43,7 +43,8 @@ python3 scripts/build_excalidraw.py input.scene.json output.excalidraw --svg out
 - Default to a hand-drawn visual system: `roughness` around `1.2` to `1.8`, `strokeStyle: "solid"`, official font family `5` (`Excalifont`), and muted fills. Only change the font family when the user explicitly requests a non-hand-drawn style.
 - Give multiline shape labels enough vertical space. Prefer boxes at least `number of lines × font size × 1.25 + 24px` high.
 - Keep at least 12px of internal text padding and at least 28px between arrow labels and nearby shapes.
-- Keep arrow labels short. Move them with `labelOffsetX`, `labelOffsetY`, or explicit `labelX`/`labelY` when automatic placement overlaps another element.
+- Keep arrow labels short. Automatic placement avoids shapes, standalone text, and frame titles. Use `labelOffsetX`, `labelOffsetY`, or explicit `labelX`/`labelY` for authoritative manual positioning.
+- `from`/`to` connectors automatically keep a 20px clearance from intervening visible shapes and use deterministic orthogonal routing when a direct connector would be blocked. Routed connectors select mid-edge ports so their first and last segments enter nodes perpendicularly instead of following a border or touching a corner. Adjacent unobstructed nodes still use a simple straight connector. Use explicit `points` when the path itself must be controlled manually.
 - Do not put both a frame `text` label and a separate title at the same coordinates.
 - Keep labels as separate text elements unless the text must move as part of a shape.
 - Use stable custom ids in the scene spec when arrows should connect to specific boxes.
