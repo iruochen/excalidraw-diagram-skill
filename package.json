@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "python3 -m unittest discover -s tests -v",
+    "validate": "python3 -m py_compile scripts/build_excalidraw.py tests/test_build_excalidraw.py tests/test_complex_generation.py && npm test && git diff --check",
     "example": "python3 scripts/build_excalidraw.py examples/login-flow.scene.json examples/login-flow.excalidraw --svg examples/login-flow.svg --pretty"
   },
   "keywords": [
