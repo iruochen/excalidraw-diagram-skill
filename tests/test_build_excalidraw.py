@@ -188,6 +188,64 @@ class BuildSceneTests(unittest.TestCase):
         self.assertEqual(arrow["points"], points)
         self.assertEqual((arrow["x"], arrow["y"]), (10, 20))
 
+    def test_bound_via_route_ends_on_target_boundary(self):
+        scene = MODULE.build_scene(
+            {
+                "elements": [
+                    {
+                        "id": "outbox",
+                        "kind": "rectangle",
+                        "x": 710,
+                        "y": 330,
+                        "width": 245,
+                        "height": 120,
+                        "text": "通知 Outbox\n待处理 / 重试 / 死信",
+                    },
+                    {
+                        "id": "worker",
+                        "kind": "rectangle",
+                        "x": 1040,
+                        "y": 330,
+                        "width": 245,
+                        "height": 120,
+                        "text": "异步工作器\n并发消费 + 幂等",
+                    },
+                    {
+                        "id": "retry",
+                        "kind": "arrow",
+                        "from": "worker",
+                        "to": "outbox",
+                        "via": [[1162.5, 235], [832.5, 235]],
+                        "text": "失败退避重试",
+                        "strokeColor": "#c62828",
+                    },
+                ]
+            }
+        )
+
+        arrow = next(element for element in scene["elements"] if element.get("id") == "retry")
+        absolute = [(arrow["x"] + x, arrow["y"] + y) for x, y in arrow["points"]]
+        self.assertEqual(absolute, [(1162.5, 330), (1162.5, 235), (832.5, 235), (832.5, 330)])
+        before_end, end = absolute[-2], absolute[-1]
+        self.assertEqual(end, (832.5, 330))
+        self.assertEqual(before_end[0], end[0])
+        self.assertLess(before_end[1], end[1])
+        self.assertFalse(MODULE.point_inside_rect(end, (710, 330, 955, 450)))
+        self.assertTrue(MODULE.point_inside_rect((830, 415), (710, 330, 955, 450)))
+
+    def test_bound_via_rejects_waypoint_inside_shape(self):
+        with self.assertRaisesRegex(SystemExit, "via point 0 lies inside a routing obstacle"):
+            MODULE.build_scene(
+                {
+                    "elements": [
+                        {"id": "a", "kind": "rectangle", "x": 0, "y": 0, "width": 100, "height": 60},
+                        {"id": "block", "kind": "rectangle", "x": 160, "y": -20, "width": 100, "height": 100},
+                        {"id": "b", "kind": "rectangle", "x": 360, "y": 0, "width": 100, "height": 60},
+                        {"kind": "arrow", "from": "a", "to": "b", "via": [[210, 30]]},
+                    ]
+                }
+            )
+
     def test_automatic_route_is_deterministic(self):
         spec = {
             "elements": [

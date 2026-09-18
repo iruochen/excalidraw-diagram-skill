@@ -238,7 +238,15 @@ def simplify_path(points: list[tuple[float, float]]) -> list[tuple[float, float]
             continue
         if len(simplified) >= 2:
             previous, current = simplified[-2], simplified[-1]
-            if (previous[0] == current[0] == point[0]) or (previous[1] == current[1] == point[1]):
+            same_vertical_direction = (
+                previous[0] == current[0] == point[0]
+                and (current[1] - previous[1]) * (point[1] - current[1]) >= 0
+            )
+            same_horizontal_direction = (
+                previous[1] == current[1] == point[1]
+                and (current[0] - previous[0]) * (point[0] - current[0]) >= 0
+            )
+            if same_vertical_direction or same_horizontal_direction:
                 simplified[-1] = point
                 continue
         simplified.append(point)
@@ -275,6 +283,25 @@ def port_candidates(
         ("bottom", (center_x, bottom), (center_x, bottom + lead_distance)),
         ("left", (left, center_y), (left - lead_distance, center_y)),
     ]
+
+
+def parse_via_points(value: Any) -> list[tuple[float, float]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise SystemExit("Connector via must be an array of absolute [x, y] points")
+    points: list[tuple[float, float]] = []
+    for index, point in enumerate(value):
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            raise SystemExit(f"Connector via point {index} must be an absolute [x, y] pair")
+        try:
+            x, y = float(point[0]), float(point[1])
+        except (TypeError, ValueError):
+            raise SystemExit(f"Connector via point {index} must contain numeric coordinates") from None
+        if not math.isfinite(x) or not math.isfinite(y):
+            raise SystemExit(f"Connector via point {index} must contain finite coordinates")
+        points.append((x, y))
+    return points
 
 
 def orthogonal_route(
@@ -338,18 +365,31 @@ def orthogonal_route(
     raise RuntimeError("No orthogonal route found")
 
 
+def orthogonal_route_through(
+    waypoints: list[tuple[float, float]],
+    obstacles: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float]]:
+    path = [waypoints[0]]
+    for start, end in zip(waypoints, waypoints[1:]):
+        segment = orthogonal_route(start, end, obstacles)
+        path.extend(segment[1:])
+    return simplify_path(path)
+
+
 def routed_connector_points(
     start_ref: dict[str, Any],
     end_ref: dict[str, Any],
     shapes: list[dict[str, Any]],
     margin: float,
+    via: Any = None,
 ) -> tuple[float, float, list[list[float]]]:
+    via_points = parse_via_points(via)
     direct_start = edge_point(start_ref, end_ref)
     direct_end = edge_point(end_ref, start_ref)
     intervening = [shape for shape in shapes if shape["id"] not in {start_ref["id"], end_ref["id"]}]
     margin = max(float(margin), 0.0)
     padded_obstacles = [shape_bounds(shape, margin) for shape in intervening]
-    if path_is_clear(direct_start, direct_end, padded_obstacles):
+    if not via_points and path_is_clear(direct_start, direct_end, padded_obstacles):
         return (
             direct_start[0],
             direct_start[1],
@@ -362,6 +402,9 @@ def routed_connector_points(
         shape_bounds(start_ref, PORT_BORDER_CLEARANCE),
         shape_bounds(end_ref, PORT_BORDER_CLEARANCE),
     ]
+    for index, point in enumerate(via_points):
+        if any(point_inside_rect(point, obstacle) for obstacle in middle_obstacles):
+            raise SystemExit(f"Connector via point {index} lies inside a routing obstacle")
     lead_distance = max(margin, PORT_LEAD_DISTANCE)
     candidates: list[
         tuple[
@@ -376,7 +419,10 @@ def routed_connector_points(
             if not path_is_clear(end_lead, end_port, endpoint_obstacles):
                 continue
             try:
-                middle = orthogonal_route(start_lead, end_lead, middle_obstacles)
+                middle = orthogonal_route_through(
+                    [start_lead, *via_points, end_lead],
+                    middle_obstacles,
+                )
             except RuntimeError:
                 continue
             absolute_points = simplify_path([start_port, *middle, end_port])
@@ -556,6 +602,8 @@ def arrow_or_line(
     kind = "line" if item.get("kind") == "line" else "arrow"
     shapes = visible_shapes(by_id)
     label_obstacles = visible_label_obstacles(existing_elements)
+    if "via" in item and not ("from" in item and "to" in item):
+        raise SystemExit("Connector via requires both from and to references")
     if "from" in item and "to" in item:
         start_ref = by_id[item["from"]]
         end_ref = by_id[item["to"]]
@@ -564,6 +612,7 @@ def arrow_or_line(
             end_ref,
             shapes,
             float(item.get("routingMargin", ROUTING_MARGIN)),
+            item.get("via"),
         )
     else:
         points = item.get("points", [[0, 0], [float(item.get("width", 160)), float(item.get("height", 0))]])

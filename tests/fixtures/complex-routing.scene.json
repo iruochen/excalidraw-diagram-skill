@@ -163,6 +163,15 @@
       "text": "审计结果"
     },
     {
+      "id": "retry-via-edge",
+      "kind": "arrow",
+      "from": "audit-review",
+      "to": "audit-switch",
+      "via": [[1095, 400], [625, 400]],
+      "text": "失败退避重试",
+      "strokeColor": "#c62828"
+    },
+    {
       "id": "explicit-edge",
       "kind": "arrow",
       "x": 180,
