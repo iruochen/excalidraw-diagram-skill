@@ -30,5 +30,6 @@ Check shape and title overlap, connector clearance, perpendicular endpoint ports
 - Routed connectors must use mid-edge ports and meet source and target edges perpendicularly; do not run tangentially along a node border or attach at a corner.
 - Automatic connector labels must avoid visible shapes, standalone text, and frame titles. Shape-bound text does not need to be counted separately from its container.
 - Explicit `labelX`/`labelY` and `labelOffsetX`/`labelOffsetY` remain authoritative.
+- `from`/`to` connectors with `via` must pass through every absolute waypoint while keeping their actual endpoints bound perpendicularly to source and target boundaries.
 
 Add regression coverage whenever one of these invariants changes or a real diagram exposes a new routing case.
